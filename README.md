@@ -91,14 +91,13 @@ Download them manually (they’re large — don’t push to GitHub!):
 
 | Dataset          | Description                                           | Link                                                                 |
 | ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
-| **AVTrack360**   | Real head movements of users watching 360° videos     | [AVTrack360 dataset](https://github.com/AndreyTrekhleb/AVTrack360)   |
-| **Deep360Pilot** | Trajectories for “piloting” tasks in immersive videos | [Deep360Pilot dataset](https://github.com/deep360pilot/deep360pilot) |
+| **AVTrack360**   | Real head movements of users watching 360° videos     | [AVTrack360 dataset](https://github.com/acmmmsys/2018-AVTrack360)   |
+
 
 After downloading, place the raw files in:
 
 ```
 data/AVTrack360/
-data/Deep360Pilot/
 ```
 
 and update their paths in your local `.env` or config file.
