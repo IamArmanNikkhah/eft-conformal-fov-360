@@ -29,11 +29,12 @@ def getData(user_id, dataset_name: str) ->  pd.DataFrame:
             data = json.load(f)
         rows = []
         for entry in data["data"]:
+            video_id = entry.get("filename", "")  # <--- minimal addition
             for timeframe in entry["pitch_yaw_roll_data_hmd"]:
                 # Append user_id, video, timestamp, yaw, and pitch to rows
-                rows.append([user_id, timeframe["sec"], timeframe["yaw"], timeframe["pitch"]])
+                rows.append([user_id, video_id, timeframe["sec"], timeframe["yaw"], timeframe["pitch"]])
         print("Loaded data for user:", user_id)
-        return pd.DataFrame(rows, columns=["user_id", "timestamp", "yaw", "pitch"])
+        return pd.DataFrame(rows, columns=["user_id", "video_id", "timestamp", "yaw", "pitch"])
     else:
         return pd.DataFrame()  # Placeholder for Deep360Pilot loading logic
     
