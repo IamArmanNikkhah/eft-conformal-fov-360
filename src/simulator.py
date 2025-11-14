@@ -1,5 +1,9 @@
 import pandas as pd
-from data_loader import getData
+
+try:
+	from src.data_loader import getData
+except ImportError:
+	from data_loader import getData
 
 
 class Simulator:
@@ -7,19 +11,15 @@ class Simulator:
 		self.user_id = user_id
 		self.dataset_name = dataset_name
 
-		# Expects data: ["user_id", "timestamp", "yaw", "pitch"]
+		# Expects data: ["user_id", "video_id", "timestamp", "yaw", "pitch"]
 		self.data = getData(user_id, dataset_name)
-
-		if not self.data.empty:
-			self.data = self.data.sort_values("timestamp").reset_index(drop=True)
-
 		self.log = []
 
 	def run(self) -> pd.DataFrame:
 	 
 		if self.data.empty:
 			print(f"No trajectory data for user {self.user_id} in {self.dataset_name}.")
-			return pd.DataFrame(columns=["timestamp", "yaw", "pitch"])
+			return pd.DataFrame(columns=["timestamp", "yaw", "pitch", "video_id"])
 
 		self.log = []
 
@@ -27,17 +27,19 @@ class Simulator:
 			timestamp = float(row["timestamp"])
 			yaw = float(row["yaw"])
 			pitch = float(row["pitch"])
+			video_id = row.get("video_id", None)
 
 			viewport = {
 				"timestamp": timestamp,
 				"yaw": yaw,
 				"pitch": pitch,
+				"video_id": video_id,
 			}
 
 			# "Log" the current ground-truth viewport
 			self.log.append(viewport)
 
-			print(f"t={timestamp:.3f}s | yaw={yaw:.2f} | pitch={pitch:.2f}")
+			print(f"video={video_id} t={timestamp:.3f}s | yaw={yaw:.2f} | pitch={pitch:.2f}")
    
 		return pd.DataFrame(self.log)
 
