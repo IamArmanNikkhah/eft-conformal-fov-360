@@ -14,7 +14,13 @@ def getData(user_id, dataset_name: str) ->  pd.DataFrame:
     #Datasets are locally found in the ../data repository
     data_path = os.path.join(os.path.dirname(__file__), "..", "data")
     if dataset_name == "avtrack360":
-        user_json_path = os.path.join(data_path, "AVTrack360_dataset", "Head_rotation", f"{user_id}.json")
+        # FIXED PATH: matches data/2018-AVTrack360/Head_rotation/<user_id>.json
+        user_json_path = os.path.join(
+            data_path,
+            "2018-AVTrack360",
+            "Head_rotation",
+            f"{user_id}.json"
+        )
         #does not exist, return empty dataframe
         if not os.path.exists(user_json_path):
             print("Path not found: ", user_json_path)
