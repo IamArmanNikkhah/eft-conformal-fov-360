@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import json
+import numpy as np
 
 #Function takes in user_id and dataset_name
 def getData(user_id, dataset_name: str) ->  pd.DataFrame:
@@ -33,11 +34,15 @@ def getData(user_id, dataset_name: str) ->  pd.DataFrame:
             for timeframe in entry["pitch_yaw_roll_data_hmd"]:
                 # Append user_id, video, timestamp, yaw, and pitch to rows
                 rows.append([user_id, video_id, timeframe["sec"], timeframe["yaw"], timeframe["pitch"]])
-        print("Loaded data for user:", user_id)
-        return pd.DataFrame(rows, columns=["user_id", "video_id", "timestamp", "yaw", "pitch"])
+
+        df = pd.DataFrame(rows, columns=["user_id", "video_id", "timestamp", "yaw", "pitch"])
+
+        ## radian equivalent
+        df["yaw_rad"] = np.deg2rad(df["yaw"])
+        df["pitch_rad"] = np.deg2rad(df["pitch"])
+
+        return df
     else:
         return pd.DataFrame()  # Placeholder for Deep360Pilot loading logic
     
-if __name__ == "__main__":
-    df = getData("2", "avtrack360")
-    print(df.head())
+
