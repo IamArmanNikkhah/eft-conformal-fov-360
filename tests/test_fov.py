@@ -1,5 +1,7 @@
 # tests/test_fov_dataset.py
 
+# to run python tests/test_fov.py  
+
 import os, sys
 import torch
 import pandas as pd
