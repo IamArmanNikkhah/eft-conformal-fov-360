@@ -99,7 +99,7 @@ class Simulator:
                 tiles_pf = fetch_tiles_in_margin(pf_yaw_deg, pf_pitch_deg, self.margin_degrees)
                 tiles_dl = fetch_tiles_in_margin(dl_yaw_deg, dl_pitch_deg, self.margin_degrees)
 
-				# Old print log, now prints to CSV to make the data more readable
+				# Old print log, now prints to CSV
                 # print(
                 #     f"video={video_id} t={timestamp:.3f} | GT=({yaw_deg:.1f}, {pitch_deg:.1f}) | prefetch=({pf_yaw_deg:.1f}, {pf_pitch_deg:.1f}) | "
                 #     f"deadline=({dl_yaw_deg:.1f}, {dl_pitch_deg:.1f}) | tiles_prefetch={tiles_pf} | tiles_deadline={tiles_dl}"
