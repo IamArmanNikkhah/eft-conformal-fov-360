@@ -3,10 +3,11 @@
 import argparse
 import os
 import random
-
+import math
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+import torch.nn.utils as nn_utils
 
 from src.datasets import FoVSequenceDataset
 from src.model import PooledFoVTransformer
@@ -45,7 +46,7 @@ def parse_args():
         help="Future offset (in steps) for near-deadline horizon.",
     )
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
@@ -67,6 +68,13 @@ def geodesic_loss_rad(pred_rad: torch.Tensor, target_rad: torch.Tensor) -> torch
     pred_rad, target_rad: [B, 2] yaw/pitch in RADIANS.
     Returns: scalar tensor = mean angular distance in radians.
     """
+    pred_rad = torch.nan_to_num(pred_rad, nan=0.0, posinf=0.0, neginf=0.0)
+    target_rad = torch.nan_to_num(target_rad, nan=0.0, posinf=0.0, neginf=0.0)
+
+    pi = math.pi
+    pred_rad = pred_rad.clamp(-pi, pi)
+    target_rad = target_rad.clamp(-pi, pi)
+
     yaw1, pitch1 = pred_rad[:, 0], pred_rad[:, 1]
     yaw2, pitch2 = target_rad[:, 0], target_rad[:, 1]
 
@@ -80,7 +88,12 @@ def geodesic_loss_rad(pred_rad: torch.Tensor, target_rad: torch.Tensor) -> torch
 
     cos_angle = x1 * x2 + y1 * y2 + z1 * z2
     cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
+    cos_angle = torch.nan_to_num(cos_angle, nan=1.0)
+    # Guard: if something is still NaN, treat that sample as zero loss
     angle = torch.acos(cos_angle)  # radians
+
+    angle = torch.nan_to_num(angle, nan=0.0)
+
     return angle.mean()
 
 
@@ -180,11 +193,28 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, total_epochs)
         optimizer.zero_grad()
         pred_pref, pred_dead = model(X)
 
+        pred_pref = torch.nan_to_num(pred_pref, nan=0.0, posinf=0.0, neginf=0.0)
+        pred_dead = torch.nan_to_num(pred_dead, nan=0.0, posinf=0.0, neginf=0.0)
+
+        pi = math.pi
+        pred_pref = pred_pref.clamp(-pi, pi)
+        pred_dead = pred_dead.clamp(-pi, pi)
+
         loss_pref = geodesic_loss_rad(pred_pref, y_pref)
         loss_dead = geodesic_loss_rad(pred_dead, y_dead)
         loss = loss_pref + loss_dead
+        # Debug: detect NaNs/Infs before backward
+
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"[ERROR] NaN/Inf loss at epoch {epoch}, batch {batch_idx}")
+            print("  Any NaNs in pred_pref?", torch.isnan(pred_pref).any().item())
+            print("  Any NaNs in pred_dead?", torch.isnan(pred_dead).any().item())
+            print("  Any NaNs in X?", torch.isnan(X).any().item())
+            # Option: break or skip this batch
+            continue
 
         loss.backward()
+        nn_utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         batch_size = X.size(0)

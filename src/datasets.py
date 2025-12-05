@@ -87,4 +87,8 @@ class FoVSequenceDataset(Dataset):
         y_prefetch = targs[pf_t]
         y_deadline = targs[nd_t]
 
+<<<<<<< HEAD
         return X, y_prefetch, y_deadline
+=======
+        return X, y_prefetch, y_deadline
+>>>>>>> e8225d8311a065b7468c92bf0e1dc1ce1875ace6

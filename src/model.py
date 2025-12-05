@@ -74,4 +74,8 @@ if __name__ == "__main__":
     y_prefetch, y_deadline = model(dummy_x)
 
     print("y_prefetch shape:", y_prefetch.shape)
+<<<<<<< HEAD
     print("y_deadline shape:", y_deadline.shape)
+=======
+    print("y_deadline shape:", y_deadline.shape)
+>>>>>>> e8225d8311a065b7468c92bf0e1dc1ce1875ace6
