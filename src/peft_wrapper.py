@@ -5,7 +5,7 @@ import torch.nn as nn
 
 
 class LoRA_Adapter(nn.Module):
-    def __init__(self, base_model, rank=4):
+    def __init__(self, base_model, rank=16):
         super().__init__()
         self.base_model = base_model
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     from model import PooledFoVTransformer
 
     base_model = PooledFoVTransformer()
-    personalized_model = LoRA_Adapter(base_model, rank=4)
+    personalized_model = LoRA_Adapter(base_model, rank=16)
 
     x = torch.zeros(4, 15, 2)
     y_pref, y_dead = personalized_model(x)
