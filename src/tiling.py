@@ -2,6 +2,7 @@
 
 import os
 import sys
+import math
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -60,3 +61,12 @@ def get_tiles_in_radius(center_yaw, center_pitch, radius, n_yaw=8, n_pitch=6):
             tiles.append(tid)
 
     return tiles
+
+def get_tiles_in_radius_rad(center_yaw_rad, center_pitch_rad, radius_rad, n_yaw=8, n_pitch=6):
+    return get_tiles_in_radius(
+        math.degrees(center_yaw_rad),
+        math.degrees(center_pitch_rad),
+        math.degrees(radius_rad),
+        n_yaw=n_yaw,
+        n_pitch=n_pitch,
+    )
