@@ -94,9 +94,9 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-4)
 
-    parser.add_argument("--context_len", type=int, default=90)
-    parser.add_argument("--prefetch_horizon", type=int, default=45)
-    parser.add_argument("--deadline_horizon", type=int, default=9)
+    parser.add_argument("--context_len", type=int, default=15)
+    parser.add_argument("--prefetch_horizon", type=int, default=15)
+    parser.add_argument("--deadline_horizon", type=int, default=3)
 
     return parser.parse_args()
 

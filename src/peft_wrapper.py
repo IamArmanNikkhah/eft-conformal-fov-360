@@ -20,20 +20,22 @@ class LoRA_Adapter(nn.Module):
         self.lora_B_dead = nn.Parameter(torch.randn(rank, 2) * 0.01)  # (Yaw, Pitch) for deadline
 
     def forward(self, x):
-        # Run the frozen base model
-        base_pref, base_dead = self.base_model(x)
-
-        #Run the internal logic to get the hidden state before the final head
+        # One transformer pass
         embedded = self.base_model.input_proj(x)
         embedded = self.base_model.pos_encoder(embedded)
-        trans_out = self.base_model.encoder(embedded)[:, -1, :]  # last token (batch, hidden_dim)
+        h = self.base_model.encoder(embedded)
+        trans_out = h[:, -1, :]  # (batch, hidden_dim)
 
-        # Calculate Adapter adjustment
+        # Base outputs using the SAME hidden state
+        base_pref = self.base_model.prefetch_head(trans_out)
+        base_dead = self.base_model.deadline_head(trans_out)
+
+        # LoRA adjustments
         adapter_pref = trans_out @ self.lora_A @ self.lora_B_pref
         adapter_dead = trans_out @ self.lora_A @ self.lora_B_dead
 
-        # Result = Base Knowledge + Personal Adjustment
         return base_pref + adapter_pref, base_dead + adapter_dead
+
 
 #Test the LoRA_Adapter with zeros input
 if __name__ == "__main__":
