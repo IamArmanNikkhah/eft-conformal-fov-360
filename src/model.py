@@ -2,6 +2,14 @@
 
 import torch
 import torch.nn as nn
+import math
+
+
+def _wrap_yaw(yaw):
+    return torch.atan2(torch.sin(yaw), torch.cos(yaw))  # [-pi, pi]
+
+def _bound_pitch(pitch):
+    return (math.pi / 2) * torch.tanh(pitch)  # [-pi/2, pi/2]
 
 
 class LearnedPositionalEncoding(nn.Module):
@@ -61,7 +69,12 @@ class PooledFoVTransformer(nn.Module):
         last_step = h[:, -1, :]
         y_prefetch = self.prefetch_head(last_step)
         y_deadline = self.deadline_head(last_step)
+
+        y_prefetch = torch.stack([_wrap_yaw(y_prefetch[:, 0]), _bound_pitch(y_prefetch[:, 1])], dim=1)
+        y_deadline = torch.stack([_wrap_yaw(y_deadline[:, 0]), _bound_pitch(y_deadline[:, 1])], dim=1)
+
         return y_prefetch, y_deadline
+
 
 
 if __name__ == "__main__":
@@ -74,8 +87,4 @@ if __name__ == "__main__":
     y_prefetch, y_deadline = model(dummy_x)
 
     print("y_prefetch shape:", y_prefetch.shape)
-<<<<<<< HEAD
     print("y_deadline shape:", y_deadline.shape)
-=======
-    print("y_deadline shape:", y_deadline.shape)
->>>>>>> e8225d8311a065b7468c92bf0e1dc1ce1875ace6

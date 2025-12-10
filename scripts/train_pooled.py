@@ -1,4 +1,6 @@
 # scripts/train_pooled.py
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import argparse
 import os
@@ -12,6 +14,11 @@ import torch.nn.utils as nn_utils
 from src.datasets import FoVSequenceDataset
 from src.model import PooledFoVTransformer
 
+def wrap_yaw(yaw: torch.Tensor) -> torch.Tensor:
+    return torch.atan2(torch.sin(yaw), torch.cos(yaw))  # [-pi, pi]
+
+def clamp_pitch(pitch: torch.Tensor) -> torch.Tensor:
+    return pitch.clamp(-math.pi/2, math.pi/2)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train pooled FoV Transformer (Week 2 baseline)")
@@ -62,21 +69,14 @@ def set_seed(seed: int):
 
 
 def geodesic_loss_rad(pred_rad: torch.Tensor, target_rad: torch.Tensor) -> torch.Tensor:
-    """
-    Batch geodesic distance between predicted and target FoV directions.
-
-    pred_rad, target_rad: [B, 2] yaw/pitch in RADIANS.
-    Returns: scalar tensor = mean angular distance in radians.
-    """
     pred_rad = torch.nan_to_num(pred_rad, nan=0.0, posinf=0.0, neginf=0.0)
     target_rad = torch.nan_to_num(target_rad, nan=0.0, posinf=0.0, neginf=0.0)
 
-    pi = math.pi
-    pred_rad = pred_rad.clamp(-pi, pi)
-    target_rad = target_rad.clamp(-pi, pi)
+    yaw1 = wrap_yaw(pred_rad[:, 0])
+    pitch1 = clamp_pitch(pred_rad[:, 1])
 
-    yaw1, pitch1 = pred_rad[:, 0], pred_rad[:, 1]
-    yaw2, pitch2 = target_rad[:, 0], target_rad[:, 1]
+    yaw2 = wrap_yaw(target_rad[:, 0])
+    pitch2 = clamp_pitch(target_rad[:, 1])
 
     x1 = torch.cos(yaw1) * torch.cos(pitch1)
     y1 = torch.sin(yaw1) * torch.cos(pitch1)
@@ -87,13 +87,11 @@ def geodesic_loss_rad(pred_rad: torch.Tensor, target_rad: torch.Tensor) -> torch
     z2 = torch.sin(pitch2)
 
     cos_angle = x1 * x2 + y1 * y2 + z1 * z2
-    cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
-    cos_angle = torch.nan_to_num(cos_angle, nan=1.0)
-    # Guard: if something is still NaN, treat that sample as zero loss
-    angle = torch.acos(cos_angle)  # radians
 
-    angle = torch.nan_to_num(angle, nan=0.0)
+    eps = 1e-6
+    cos_angle = torch.clamp(cos_angle, -1.0 + eps, 1.0 - eps)
 
+    angle = torch.acos(cos_angle)
     return angle.mean()
 
 
@@ -196,10 +194,6 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, total_epochs)
         pred_pref = torch.nan_to_num(pred_pref, nan=0.0, posinf=0.0, neginf=0.0)
         pred_dead = torch.nan_to_num(pred_dead, nan=0.0, posinf=0.0, neginf=0.0)
 
-        pi = math.pi
-        pred_pref = pred_pref.clamp(-pi, pi)
-        pred_dead = pred_dead.clamp(-pi, pi)
-
         loss_pref = geodesic_loss_rad(pred_pref, y_pref)
         loss_dead = geodesic_loss_rad(pred_dead, y_dead)
         loss = loss_pref + loss_dead
@@ -225,6 +219,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, total_epochs)
         if (batch_idx + 1) % 100 == 0:
             avg_loss = total_loss / max(n_samples, 1)
             print(f"[INFO] Epoch {epoch} - Batch {batch_idx + 1}, running avg loss={avg_loss:.4f}")
+            print(f"pref={loss_pref.item():.4f} dead={loss_dead.item():.4f} total={loss.item():.4f}")
 
     return total_loss / max(n_samples, 1)
 
