@@ -93,7 +93,7 @@ def parse_args():
     parser.add_argument("--context_len", type=int, default=15)
     parser.add_argument("--prefetch_horizon", type=int, default=15)
     parser.add_argument("--deadline_horizon", type=int, default=3)
-    parser.add_argument("--train_frac", type=float, default=0.8)
+    parser.add_argument("--train_frac", type=float, default=0.2)
 
     return parser.parse_args()
 
