@@ -37,12 +37,6 @@ def getData(user_id, dataset_name: str) ->  pd.DataFrame:
 
         df = pd.DataFrame(rows, columns=["user_id", "video_id", "timestamp", "yaw", "pitch"])
 
-        df = df.sort_values(["user_id", "video_id", "timestamp"]).reset_index(drop=True)
-
-        df["t_idx"] = df.groupby(["user_id", "video_id"]).cumcount()
-
-        df["t_seconds"] = df["t_idx"] * 0.1
-
         ## radian equivalent
         df["yaw_rad"] = np.deg2rad(df["yaw"])
         df["pitch_rad"] = np.deg2rad(df["pitch"])
