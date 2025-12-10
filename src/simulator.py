@@ -17,8 +17,8 @@ except ImportError:
 
 
 class Simulator:
-    def __init__(self, user_id: str, dataset_name: str = "avtrack360", model_path: str = "model/pooled_model.pth",
-                 context_len: int = 90, margin_degrees: float = 20.0, device: str = "cuda",):
+    def __init__(self, user_id: str, dataset_name: str = "avtrack360", model_path: str = "models/pooled_model.pth",
+                 context_len: int = 15, margin_degrees: float = 20.0, device: str = "cuda",):
         self.user_id = user_id
         self.dataset_name = dataset_name
         self.context_len = int(context_len)
