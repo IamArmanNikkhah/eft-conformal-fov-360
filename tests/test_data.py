@@ -1,4 +1,4 @@
-# run_specific_user.py
+# to run: python tests/test_data.py
 
 import os
 import sys
@@ -13,14 +13,16 @@ DATASET_NAME = "avtrack360"
 
 def list_all_users():
     """
-    Returns a list of user IDs that exist in the dataset folder.
-    Also prints them in condensed preview format:
-        [1, 2, 3, 4, 5, ..., 49]
+    Returns a list of user IDs and their data that exist in the cleaned dataset folder.
     """
 
-    base_path = os.path.join(os.path.dirname(__file__), "..", "data")
-    folder = os.path.join(base_path, "2018-AVTrack360", "Head_rotation")
-
+    folder = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "data",
+        "2018-AVTrack360",
+        "cleaned"
+    )
     if not os.path.exists(folder):
         print("[WARN] Folder not found:", folder)
         return []
@@ -38,15 +40,8 @@ def list_all_users():
     # Sort numerically
     user_ids = sorted(user_ids, key=lambda x: int(x))
 
-    # ---- PREVIEW PRINT ----
-    if len(user_ids) <= 5:
-        preview = "[" + ", ".join(user_ids) + "]"
-    else:
-        first_five = ", ".join(user_ids[:5])
-        preview = f"[{first_five}, ..., {user_ids[-1]}]"
 
-    print(f"Found {len(user_ids)} users: {preview}")
-
+    print(f"Found {len(user_ids)} CLEANED users: {user_ids[:5]} ... {user_ids[-1]}")
     return user_ids
 
 
