@@ -37,19 +37,19 @@ def parse_args():
     parser.add_argument(
         "--context_len",
         type=int,
-        default=90,
+        default=15,
         help="Number of past steps used as context.",
     )
     parser.add_argument(
         "--prefetch_horizon",
         type=int,
-        default=45,
+        default=15,
         help="Future offset (in steps) for prefetch horizon.",
     )
     parser.add_argument(
         "--deadline_horizon",
         type=int,
-        default=9,
+        default=3,
         help="Future offset (in steps) for near-deadline horizon.",
     )
     parser.add_argument("--batch_size", type=int, default=64)
