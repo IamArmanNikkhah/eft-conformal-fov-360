@@ -213,3 +213,4 @@ src/testtiling.py
 outputs/
 scripts/overlay_predictions.py
 scripts/overlay_user_adapter.py
+results/
