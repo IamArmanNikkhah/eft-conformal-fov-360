@@ -1,4 +1,4 @@
-# to run from root, "python -m src.simulator". "--context_len <int>" to change window sizes. Baseline currently is 1.5s since data is at 60 fps
+# to run from root, "python -m src.simulator". "--context_len <int>" to change window sizes.
 
 import os
 import time
@@ -10,15 +10,25 @@ try:
     from src.data_loader import getData
     from src.geometry_utils import fetch_tiles_in_margin
     from src.model import PooledFoVTransformer
+    from src.peft_wrapper import LoRA_Adapter
 except ImportError:
     from data_loader import getData
     from geometry_utils import fetch_tiles_in_margin
     from model import PooledFoVTransformer
+    from peft_wrapper import LoRA_Adapter
 
 
 class Simulator:
-    def __init__(self, user_id: str, dataset_name: str = "avtrack360", model_path: str = "models/pooled_model.pth",
-                 context_len: int = 15, margin_degrees: float = 20.0, device: str = "cuda",):
+    def __init__(
+        self,
+        user_id: str,
+        dataset_name: str = "avtrack360",
+        model_path: str = "models/pooled_model.pth",
+        adapter_path: str = None,
+        context_len: int = 15,
+        margin_degrees: float = 20.0,
+        device: str = "cuda",
+    ):
         self.user_id = user_id
         self.dataset_name = dataset_name
         self.context_len = int(context_len)
@@ -33,7 +43,7 @@ class Simulator:
         )
 
         if os.path.exists(model_path):
-            self.model = PooledFoVTransformer(
+            base_model = PooledFoVTransformer(
                 input_dim=2,
                 d_model=256,
                 n_heads=4,
@@ -42,11 +52,27 @@ class Simulator:
                 max_seq_len=context_len,
             ).to(self.device)
 
-            state_dict = torch.load(model_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+        state_dict = torch.load(model_path, map_location=self.device)
+        base_model.load_state_dict(state_dict, strict=False)
+        base_model.eval()
+
+        # OPTIONAL: wrap with LoRA adapter
+        if adapter_path is not None and adapter_path != "":
+            if not os.path.exists(adapter_path):
+                raise FileNotFoundError(f"Adapter file not found: {adapter_path}")
+
+            adapter_sd = torch.load(adapter_path, map_location=self.device)
+
+            # infer rank from saved lora_A
+            if "lora_A" not in adapter_sd:
+                raise ValueError(f"Adapter file doesn't contain 'lora_A': {adapter_path}")
+            rank = int(adapter_sd["lora_A"].shape[1])
+
+            self.model = LoRA_Adapter(base_model, rank=rank).to(self.device)
+            self.model.load_state_dict(adapter_sd, strict=False)
             self.model.eval()
         else:
-            raise FileNotFoundError(f"Model file not found: {model_path}")
+            self.model = base_model
 
     def run(self):
         if self.data.empty:
@@ -82,9 +108,7 @@ class Simulator:
 
             # Only run if buffer is full
             if len(context) == self.context_len:
-
-                x = torch.tensor(context, dtype=torch.float32, device=self.device)
-                x = x.unsqueeze(0)  # (1, T, 2)
+                x = torch.tensor(context, dtype=torch.float32, device=self.device).unsqueeze(0)
 
                 with torch.no_grad():
                     y_pf, y_dl = self.model(x)
@@ -95,21 +119,9 @@ class Simulator:
                 dl_yaw_deg   = float(np.degrees(y_dl[0, 0].cpu().item()))
                 dl_pitch_deg = float(np.degrees(y_dl[0, 1].cpu().item()))
 
-                # Fetch tiles for both horizons
                 tiles_pf = fetch_tiles_in_margin(pf_yaw_deg, pf_pitch_deg, self.margin_degrees)
                 tiles_dl = fetch_tiles_in_margin(dl_yaw_deg, dl_pitch_deg, self.margin_degrees)
 
-				# Old print log, now prints to CSV
-                # print(
-                #     f"video={video_id} t={timestamp:.3f} | GT=({yaw_deg:.1f}, {pitch_deg:.1f}) | prefetch=({pf_yaw_deg:.1f}, {pf_pitch_deg:.1f}) | "
-                #     f"deadline=({dl_yaw_deg:.1f}, {dl_pitch_deg:.1f}) | tiles_prefetch={tiles_pf} | tiles_deadline={tiles_dl}"
-                # )
-
-            #else:
-                # Left here in case someone wants them back in the console
-                # print(f"video={video_id} t={timestamp:.3f} | GT=({yaw_deg:.1f}, {pitch_deg:.1f}) | warmup {len(context)}/{self.context_len}")
-
-            # Log ground truth, prefetch, and deadline
             self.log.append({
                 "timestamp": timestamp,
                 "yaw_deg": yaw_deg,
@@ -126,13 +138,14 @@ class Simulator:
         return pd.DataFrame(self.log)
 
 if __name__ == "__main__":
-	user_id = input("Enter user ID (e.g., 2): ").strip()
-	sim = Simulator(user_id)
-	log_df = sim.run()
-	# print("\nLog:")
-	# print(log_df)
+    user_id = input("Enter user ID (e.g., 2): ").strip()
+    adapter_path = input("Adapter path (ENTER to skip): ").strip()  # <<< NEW (optional prompt)
+    adapter_path = adapter_path if adapter_path != "" else None
 
-	stamp = time.strftime("%Y%m%d_%H%M%S")
-	out_path = f"data/sim_user_{user_id}_{stamp}.csv"
-	log_df.to_csv(out_path, index=False)
-	print(f"\nSaved simulation output to:\n{out_path}\n")
+    sim = Simulator(user_id, adapter_path=adapter_path)
+    log_df = sim.run()
+
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    out_path = f"data/sim_user_{user_id}_{stamp}.csv"
+    log_df.to_csv(out_path, index=False)
+    print(f"\nSaved simulation output to:\n{out_path}\n")
