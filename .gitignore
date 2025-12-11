@@ -214,3 +214,4 @@ outputs/
 scripts/overlay_predictions.py
 scripts/overlay_user_adapter.py
 results/
+scripts/overlay_video.py

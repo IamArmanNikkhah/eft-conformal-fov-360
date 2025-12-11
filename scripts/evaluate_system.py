@@ -15,6 +15,9 @@ from src.model import PooledFoVTransformer
 from src.peft_wrapper import LoRA_Adapter
 from src.datasets import FoVSequenceDataset
 from src.geometry_utils import geodesic_distance_radians
+from src.conformal import get_prediction_intervals
+from src.tiling import get_tiles_in_radius_rad
+from torch.utils.data import DataLoader
 
 CONTEXT_LEN = 15
 PREFETCH_H = 15
@@ -185,9 +188,13 @@ def main():
     model = PostProcessWrapper(model).to(device).eval()
 
     # 5) Calibrate baseline radius (prefetch)
-    baseline_radius = calibrate_uncertainty_prefetch(model, calib_ds, device, alpha=ALPHA_BASE)
-    if baseline_radius is None:
+    # baseline_radius = calibrate_uncertainty_prefetch(model, calib_ds, device, alpha=ALPHA_BASE)
+    calib_loader = DataLoader(calib_ds, batch_size=32)
+    radii = get_prediction_intervals(model, calib_loader, ALPHA_BASE)
+    if len(radii) == 0:
         raise RuntimeError("Calibration failed (no residuals).")
+    # average of prefetch and deadline quantile radii from the conformal script
+    baseline_radius = sum(radii.values()) / len(radii)
 
     print(f"[INFO] baseline_radius (alpha={ALPHA_BASE}) = {baseline_radius:.4f} rad "
           f"({math.degrees(baseline_radius):.1f} deg)")
@@ -219,6 +226,8 @@ def main():
 
         with torch.no_grad():
             pred_pref, _ = model(X)
+
+        print(get_tiles_in_radius_rad(y_pref[:, 0], y_pref[:, 1], dynamic_radius))
 
         dist = geodesic_distance_radians(pred_pref, y_pref)[0].item()
         is_hit = 1 if dist <= dynamic_radius else 0
