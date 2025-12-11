@@ -1,6 +1,10 @@
 # scripts/evaluate_system.py
 # Run:
 #   python -m scripts.evaluate_system --user_id 2
+#
+# Outputs:
+#   results/eval_user_<id>_prefetch.png
+#   results/eval_user_<id>_deadline.png
 
 import os, sys, math, argparse
 import numpy as np
@@ -44,6 +48,10 @@ ALPHA_BASE = 0.05
 # buffer update scaling (keeps buffer from instantly exploding or dying)
 COST_SCALE = 1.5  # download_cost = dynamic_radius * COST_SCALE
 
+# tiling
+N_YAW = 12
+N_PITCH = 6
+
 SEED = 0
 
 
@@ -65,44 +73,160 @@ class PostProcessWrapper(nn.Module):
         return postprocess_yaw_pitch(y_pf), postprocess_yaw_pitch(y_dl)
 
 
-def calibrate_uncertainty_prefetch(model, ds, device, alpha=0.05):
+def gt_tile_id_from_yawpitch_rad(yaw_rad: float, pitch_rad: float,
+                                 n_yaw: int, n_pitch: int) -> int:
     """
-    Mini-project style conformal calibration:
-      - compute residuals = distance(pred_pref, gt_pref)
-      - choose radius using (n+1) style index
+    Convert (yaw, pitch) in radians to a tile ID, using the same convention
+    as the tiling utilities:
+      - yaw in [-180, 180)
+      - pitch in [-90, 90]
+      - row = 0 at pitch = -90 (bottom), increasing upward.
     """
-    model.eval()
-    residuals = []
+    yaw_deg = math.degrees(float(yaw_rad))
+    pitch_deg = math.degrees(float(pitch_rad))
 
-    with torch.no_grad():
-        for i in range(len(ds)):
-            X, y_pref, _ = ds[i]
-            X = X.unsqueeze(0).to(device, dtype=torch.float32)
-            y_pref = y_pref.unsqueeze(0).to(device, dtype=torch.float32)
-            y_pref = postprocess_yaw_pitch(y_pref)
+    # wrap/clamp to valid ranges
+    yaw_deg = ((yaw_deg + 180.0) % 360.0) - 180.0
+    pitch_deg = max(-90.0, min(90.0, pitch_deg))
 
-            pred_pref, _ = model(X)
-            # geodesic_distance_radians expects shape [B,2] tensors
-            d = geodesic_distance_radians(pred_pref, y_pref)[0].item()
-            residuals.append(float(d))
+    col = int(((yaw_deg + 180.0) / 360.0) * n_yaw)
+    col = max(0, min(n_yaw - 1, col))
 
-    residuals.sort()
-    n = len(residuals)
-    if n == 0:
-        return None
+    row = int(((pitch_deg + 90.0) / 180.0) * n_pitch)
+    row = max(0, min(n_pitch - 1, row))
 
-    q_val = math.ceil((n + 1) * (1.0 - alpha)) / n
-    q_val = min(1.0, max(0.0, q_val))
-    cutoff_index = int(q_val * n) - 1
-    cutoff_index = min(max(cutoff_index, 0), n - 1)
-
-    return float(residuals[cutoff_index])
+    return row * n_yaw + col
 
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--user_id", type=str, required=True)
     return p.parse_args()
+
+
+def run_simulation_for_mode(
+    mode: str,
+    baseline_radius: float,
+    eval_ds,
+    device,
+    user_id: str,
+    bandwidth,
+    model: nn.Module,
+):
+
+    # Run the  simulation for a single mode ("prefetch" or "deadline"),
+ 
+    assert mode in ("prefetch", "deadline")
+
+    buffer_level = float(INIT_BUFFER)
+    results = {"alpha": [], "radius": [], "hit": [], "buffer": [], "tiles": []}
+
+    for t in range(N_STEPS):
+        current_bandwidth = float(bandwidth[t])
+
+        # 1) Alpha controller
+        target_alpha = MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) / (
+            1.0 + np.exp(STEEPNESS * (buffer_level - MIDPOINT))
+        )
+
+        # 2) Dynamic radius: scale baseline_radius by alpha
+        dynamic_radius = baseline_radius * (ALPHA_BASE / max(target_alpha, 1e-6))
+
+        # 3) Pick random eval sample
+        sample_idx = np.random.randint(len(eval_ds))
+        X, y_pref, y_dead = eval_ds[sample_idx]
+
+        X = X.unsqueeze(0).to(device, dtype=torch.float32)
+        y_pref = y_pref.unsqueeze(0).to(device, dtype=torch.float32)
+        y_dead = y_dead.unsqueeze(0).to(device, dtype=torch.float32)
+
+        # wrap/clamp GT angles
+        y_pref = postprocess_yaw_pitch(y_pref)
+        y_dead = postprocess_yaw_pitch(y_dead)
+
+        with torch.no_grad():
+            pred_pref, pred_dead = model(X)
+
+        if mode == "prefetch":
+            pred = pred_pref
+            gt = y_pref
+        else:
+            pred = pred_dead
+            gt = y_dead
+
+        # 4) Tiling-based hit:
+        #    - tiles fetched = all tiles whose area intersects the prediction circle
+        #    - GT tile = tile containing the GT yaw/pitch
+        tiles = get_tiles_in_radius_rad(
+            pred[0, 0].item(),
+            pred[0, 1].item(),
+            dynamic_radius,
+            n_yaw=N_YAW,
+            n_pitch=N_PITCH,
+        )
+        gt_tid = gt_tile_id_from_yawpitch_rad(
+            gt[0, 0].item(),
+            gt[0, 1].item(),
+            N_YAW,
+            N_PITCH,
+        )
+        is_hit = 1 if gt_tid in tiles else 0
+
+        # (Optional) geodesic distance
+        _dist = geodesic_distance_radians(pred, gt)[0].item()
+
+        # 5) Buffer update
+        download_cost = max(1e-3, dynamic_radius * COST_SCALE)
+        buffer_change = (current_bandwidth / download_cost) - 1.0  # -1 playback
+        buffer_level = max(0.0, min(MAX_BUFFER, buffer_level + buffer_change))
+
+        # 6) Record stats
+        results["alpha"].append(float(target_alpha))
+        results["radius"].append(float(dynamic_radius))
+        results["hit"].append(int(is_hit))
+        results["buffer"].append(float(buffer_level))
+        results["tiles"].append(len(tiles))
+
+    # ----- summarize + plot -----
+    os.makedirs("results", exist_ok=True)
+    hits = np.array(results["hit"], dtype=np.int32)
+    hit_rate = float(hits.mean() * 100.0)
+    avg_tiles = float(np.mean(results["tiles"]))
+    avg_radius = float(np.mean(results["radius"]))
+    avg_alpha = float(np.mean(results["alpha"]))
+
+    fig, ax = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+
+    # Plot 1: Bandwidth & Buffer
+    ax[0].plot(bandwidth, label="Bandwidth", linestyle="--")
+    ax[0].plot(results["buffer"], label="Buffer Level", linewidth=2)
+    ax[0].axhline(y=DANGER_ZONE, linestyle=":", label="Danger Zone")
+    ax[0].set_ylabel("Level")
+    ax[0].legend()
+    ax[0].set_title(f"System Status ({mode})")
+
+    # Plot 2: Radius
+    ax[1].plot(results["radius"], label="Prediction Radius")
+    ax[1].set_ylabel("Radius Size (rad)")
+    ax[1].legend()
+    ax[1].set_title("Adaptive Risk Control")
+
+    # Plot 3: Hits
+    ax[2].bar(range(N_STEPS), hits, color=["green" if h else "red" for h in hits])
+    ax[2].set_ylabel("Hit (1) / Miss (0)")
+    ax[2].set_title(f"User Experience (Hit Rate: {hit_rate:.1f}%)")
+
+    out_path = os.path.join("results", f"eval_user_{user_id}_{mode}.png")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+    print(f"\n[SAVED] {out_path}")
+    print(
+        f"[SUMMARY {mode}] steps={N_STEPS} hit_rate={hit_rate:.2f}% "
+        f"avg_alpha={avg_alpha:.3f} avg_radius={avg_radius:.3f} rad "
+        f"avg_tiles={avg_tiles:.2f}"
+    )
 
 
 def main():
@@ -147,7 +271,7 @@ def main():
     if len(eval_indices) < 20:
         raise RuntimeError(f"Eval set too small: {len(eval_indices)} windows.")
 
-    # Wrap ds_all with index lists (super simple)
+    # Wrap ds_all with index lists
     class IndexView:
         def __init__(self, ds, idxs):
             self.ds = ds
@@ -187,95 +311,47 @@ def main():
 
     model = PostProcessWrapper(model).to(device).eval()
 
-    # 5) Calibrate baseline radius (prefetch)
-    # baseline_radius = calibrate_uncertainty_prefetch(model, calib_ds, device, alpha=ALPHA_BASE)
-    calib_loader = DataLoader(calib_ds, batch_size=32)
+    # 5) Calibrate baseline radii (prefetch + deadline)
+    calib_loader = DataLoader(calib_ds, batch_size=32, shuffle=False)
     radii = get_prediction_intervals(model, calib_loader, ALPHA_BASE)
-    if len(radii) == 0:
+    if not radii:
         raise RuntimeError("Calibration failed (no residuals).")
-    # average of prefetch and deadline quantile radii from the conformal script
-    baseline_radius = sum(radii.values()) / len(radii)
 
-    print(f"[INFO] baseline_radius (alpha={ALPHA_BASE}) = {baseline_radius:.4f} rad "
-          f"({math.degrees(baseline_radius):.1f} deg)")
+    baseline_radius_prefetch = float(radii["prefetch_radius"])
+    baseline_radius_deadline = float(radii["deadline_radius"])
 
-    # 6) Simulate streaming session (similar to mini project)
+    print(
+        f"[INFO] prefetch_radius (alpha={ALPHA_BASE}) = "
+        f"{baseline_radius_prefetch:.4f} rad ({math.degrees(baseline_radius_prefetch):.1f} deg)"
+    )
+    print(
+        f"[INFO] deadline_radius (alpha={ALPHA_BASE}) = "
+        f"{baseline_radius_deadline:.4f} rad ({math.degrees(baseline_radius_deadline):.1f} deg)"
+    )
+
+    # 6) Shared synthetic bandwidth signal (same for both modes)
     bandwidth = np.sin(np.linspace(0, 10, N_STEPS)) + 1.5  # volatile bandwidth
-    buffer_level = float(INIT_BUFFER)
 
-    results = {"alpha": [], "radius": [], "hit": [], "buffer": []}
+    # 7) Run simulations for both modes
+    run_simulation_for_mode(
+        mode="prefetch",
+        baseline_radius=baseline_radius_prefetch,
+        eval_ds=eval_ds,
+        device=device,
+        user_id=args.user_id,
+        bandwidth=bandwidth,
+        model=model,
+    )
 
-    for t in range(N_STEPS):
-        current_bandwidth = float(bandwidth[t])
-
-        # alpha controller
-        target_alpha = MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) / (
-            1.0 + np.exp(STEEPNESS * (buffer_level - MIDPOINT))
-        )
-
-        # dynamic radius approximation
-        dynamic_radius = baseline_radius * (ALPHA_BASE / max(target_alpha, 1e-6))
-
-        # pick random eval sample
-        sample_idx = np.random.randint(len(eval_ds))
-        X, y_pref, _ = eval_ds[sample_idx]
-
-        X = X.unsqueeze(0).to(device, dtype=torch.float32)
-        y_pref = y_pref.unsqueeze(0).to(device, dtype=torch.float32)
-        y_pref = postprocess_yaw_pitch(y_pref)
-
-        with torch.no_grad():
-            pred_pref, _ = model(X)
-
-        print(get_tiles_in_radius_rad(y_pref[:, 0], y_pref[:, 1], dynamic_radius))
-
-        dist = geodesic_distance_radians(pred_pref, y_pref)[0].item()
-        is_hit = 1 if dist <= dynamic_radius else 0
-
-        # buffer update
-        download_cost = max(1e-3, dynamic_radius * COST_SCALE)
-        buffer_change = (current_bandwidth / download_cost) - 1.0  # -1.0 playback
-        buffer_level = max(0.0, min(MAX_BUFFER, buffer_level + buffer_change))
-
-        results["alpha"].append(float(target_alpha))
-        results["radius"].append(float(dynamic_radius))
-        results["hit"].append(int(is_hit))
-        results["buffer"].append(float(buffer_level))
-
-    # 7) Plot (same 3 graphs as mini-project)
-    os.makedirs("results", exist_ok=True)
-    hits = np.array(results["hit"], dtype=np.int32)
-    hit_rate = float(hits.mean() * 100.0)
-
-    fig, ax = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
-
-    # Plot 1: Bandwidth & Buffer
-    ax[0].plot(bandwidth, label="Bandwidth", linestyle="--")
-    ax[0].plot(results["buffer"], label="Buffer Level", linewidth=2)
-    ax[0].axhline(y=DANGER_ZONE, linestyle=":", label="Danger Zone")
-    ax[0].set_ylabel("Level")
-    ax[0].legend()
-    ax[0].set_title("System Status")
-
-    # Plot 2: Radius
-    ax[1].plot(results["radius"], label="Prediction Radius")
-    ax[1].set_ylabel("Radius Size (rad)")
-    ax[1].legend()
-    ax[1].set_title("Adaptive Risk Control")
-
-    # Plot 3: Hits
-    ax[2].bar(range(N_STEPS), hits, color=["green" if h else "red" for h in hits])
-    ax[2].set_ylabel("Hit (1) / Miss (0)")
-    ax[2].set_title(f"User Experience (Hit Rate: {hit_rate:.1f}%)")
-
-    out_path = os.path.join("results", f"eval_user_{args.user_id}_simple.png")
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
-
-    print(f"\n[SAVED] {out_path}")
-    print(f"[SUMMARY] steps={N_STEPS} hit_rate={hit_rate:.2f}% "
-          f"avg_alpha={np.mean(results['alpha']):.3f} "
-          f"avg_radius={np.mean(results['radius']):.3f} rad\n")
+    run_simulation_for_mode(
+        mode="deadline",
+        baseline_radius=baseline_radius_deadline,
+        eval_ds=eval_ds,
+        device=device,
+        user_id=args.user_id,
+        bandwidth=bandwidth,
+        model=model,
+    )
 
 
 if __name__ == "__main__":
