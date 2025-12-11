@@ -82,7 +82,7 @@ def geodesic_loss_rad(pred_rad, target_rad):
 def parse_args():
     parser = argparse.ArgumentParser(description="User Fine-Tuning Script (Task 2)")
     parser.add_argument("--user_id", type=str, required=True)
-    parser.add_argument("--data_path", type=str, default="data/avtrack360_train.parquet")
+    parser.add_argument("--data_path", type=str, default="data/avtrack360_val.parquet")
     parser.add_argument("--base_weights", type=str, default="models/pooled_model.pth")
     parser.add_argument("--save_dir", type=str, default="models")
     parser.add_argument("--epochs", type=int, default=15)
