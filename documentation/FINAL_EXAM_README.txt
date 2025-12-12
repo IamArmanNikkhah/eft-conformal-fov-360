@@ -1,3 +1,5 @@
+This is a step-by-stey guide to run the evaluate_system script for the final task of week 4:
+
 Create conda environment:
 conda env create -f env.yml
 
@@ -26,6 +28,6 @@ python -m scripts.finetune_user --user_id <val_user_id>
 Then run evaluate system for Final Exam task of week 4:
 python -m scripts.evaluate_system --user_id <val_user_id>
 
-Outside of the print results as 3 graphs for each horizon will also be in:
+Outside of the printed results to console, 3 graphs for each horizon will also be in:
 <repo_path>/eft-conformal-fov-360/results/eval_user_<id>_prefetch.png
 <repo_path>/eft-conformal-fov-360/results/eval_user_<id>_deadline.png
