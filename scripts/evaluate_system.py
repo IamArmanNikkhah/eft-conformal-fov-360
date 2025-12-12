@@ -22,6 +22,7 @@ from src.geometry_utils import geodesic_distance_radians
 from src.conformal import get_prediction_intervals
 from src.tiling import get_tiles_in_radius_rad
 from torch.utils.data import DataLoader
+from modules.controller import AlphaController, AlphaControllerConfig
 
 CONTEXT_LEN = 15
 PREFETCH_H = 15
@@ -118,16 +119,23 @@ def run_simulation_for_mode(
  
     assert mode in ("prefetch", "deadline")
 
+    # init alpha controller
+    controller = AlphaController(AlphaControllerConfig(
+        min_alpha=MIN_ALPHA,
+        max_alpha=MAX_ALPHA,
+        midpoint=MIDPOINT,
+        steepness=STEEPNESS,
+        smooth_factor=1.0
+    ))
+
     buffer_level = float(INIT_BUFFER)
     results = {"alpha": [], "radius": [], "hit": [], "buffer": [], "tiles": []}
 
     for t in range(N_STEPS):
         current_bandwidth = float(bandwidth[t])
 
-        # 1) Alpha controller
-        target_alpha = MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) / (
-            1.0 + np.exp(STEEPNESS * (buffer_level - MIDPOINT))
-        )
+        # 1) Alpha controller update
+        target_alpha = controller.update(buffer_level)
 
         # 2) Dynamic radius: scale baseline_radius by alpha
         dynamic_radius = baseline_radius * (ALPHA_BASE / max(target_alpha, 1e-6))
