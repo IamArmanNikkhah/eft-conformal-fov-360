@@ -4,31 +4,23 @@
 Alpha controller for adaptive risk in conformal prediction.
 
 This module exposes an AlphaController class that adjusts the conformal
-risk level alpha based on the current playback buffer.
+risk level alpha based on the current playback buffer, using a logistic
+mapping:
 
-Concept:
-    - alpha controls the risk / coverage tradeoff for conformal prediction.
-    - Smaller alpha  -> higher coverage (bigger safety radius, more tiles).
-    - Larger alpha   -> lower coverage (smaller safety radius, fewer tiles).
+    alpha = min_alpha + (max_alpha - min_alpha) / (
+        1 + exp(steepness * (buffer - midpoint))
+    )
 
-Policy (high-level):
-    - When the playback buffer is healthy (large), we can afford to be safe:
-        -> keep alpha near min_alpha (e.g., 0.01 => ~99% coverage).
-    - When the buffer is shrinking / low, we must be more aggressive:
-        -> increase alpha toward max_alpha (e.g., 0.20 => ~80% coverage).
+- Large buffer  -> alpha ~ min_alpha (more conservative, larger radius)
+- Small buffer  -> alpha ~ max_alpha (more aggressive, smaller radius)
 
-Implementation details:
-    - We linearly map current_buffer ∈ [0, max_buffer] to
-      target_alpha ∈ [max_alpha, min_alpha], so:
-        * buffer >= max_buffer -> alpha ≈ min_alpha
-        * buffer  <= 0         -> alpha ≈ max_alpha
-        * in between, alpha is interpolated.
-    - We then apply an exponential moving average (EMA) between the
-      previous alpha and the new target_alpha to avoid jerky jumps.
+An optional EMA smoothing factor controls how quickly alpha responds
+to changes in the buffer.
 """
 
 from dataclasses import dataclass
 from typing import Optional
+import math
 
 
 @dataclass
@@ -45,9 +37,10 @@ class AlphaControllerConfig:
                        changes; larger = more reactive, jerkier.
     """
     min_alpha: float = 0.01
-    max_alpha: float = 0.20
-    max_buffer: float = 5.0
-    smooth_factor: float = 0.2  # 0.1–0.3 is usually reasonable
+    max_alpha: float = 0.15
+    midpoint: float = 13.0
+    steepness: float = 0.15   
+    smooth_factor: float = 1.0
 
 
 class AlphaController:
@@ -93,27 +86,27 @@ class AlphaController:
             alpha = self.cfg.min_alpha
         self._alpha = float(alpha)
 
-    def _buffer_to_target_alpha(self, current_buffer: float) -> float:
+    def _buffer_to_target_alpha(self, buffer_level: float) -> float:
         """
-        Map the current buffer level to an unsmoothed target alpha.
+        Map the current buffer level to an unsmoothed target alpha using
+        a logistic function:
 
-        We clamp buffer into [0, max_buffer] and then linearly map:
-
-            buffer >= max_buffer  -> alpha = min_alpha   (very safe)
-            buffer  <= 0          -> alpha = max_alpha   (very risky)
-            in between            -> interpolate
-
-        This matches the idea:
-            target_alpha = min_alpha + (max_buffer - buffer) * slope
-        but normalized so that the slope is (max_alpha - min_alpha) / max_buffer.
+            target = min_alpha + (max_alpha - min_alpha) / (
+                1 + exp(steepness * (buffer_level - midpoint))
+            )
         """
         cfg = self.cfg
-        buf = max(0.0, min(current_buffer, cfg.max_buffer))
 
-        # fraction of how "low" the buffer is (0 = full, 1 = empty)
-        low_frac = (cfg.max_buffer - buf) / cfg.max_buffer
-        # interpolate between min_alpha (full buffer) and max_alpha (empty)
-        target_alpha = cfg.min_alpha + low_frac * (cfg.max_alpha - cfg.min_alpha)
+        # Logistic denominator
+        x = float(buffer_level)
+
+        denom = 1.0 + math.exp(cfg.steepness * (x - cfg.midpoint))
+
+        frac = (cfg.max_alpha - cfg.min_alpha) / denom
+        target_alpha = cfg.min_alpha + frac
+
+        # Extra clamp in case of any numeric weirdness
+        target_alpha = max(cfg.min_alpha, min(target_alpha, cfg.max_alpha))
 
         return target_alpha
 
