@@ -50,7 +50,7 @@ def build_avtrack360_df(head_root: str) -> pd.DataFrame:
 
 def main():
     # 👈 adjust this path if your repo structure is different
-    head_root = "data/2018-AVTrack360/Head_rotation"
+    head_root = "data/2018-AVTrack360/cleaned"
 
     out_all = "data/avtrack360_pooled.parquet"
     out_train = "data/avtrack360_train.parquet"
