@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from geometry_utils import geodesic_distance_radians
+from src.geometry_utils import geodesic_distance_radians
 
 def calculate_residuals(model, validation_data):
     """
