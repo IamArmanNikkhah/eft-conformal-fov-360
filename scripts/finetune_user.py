@@ -41,6 +41,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
+import matplotlib.pyplot as plt
 
 from src.datasets import FoVSequenceDataset
 from src.model import PooledFoVTransformer
@@ -96,6 +97,23 @@ def parse_args():
     parser.add_argument("--train_frac", type=float, default=0.2)
 
     return parser.parse_args()
+
+
+@torch.no_grad()
+def evaluate_train_loss(model, loader, device):
+    model.eval()
+    total_loss = 0.0
+    n_batches = 0
+
+    for X, y_pref, y_dead in loader:
+        X, y_pref, y_dead = X.to(device), y_pref.to(device), y_dead.to(device)
+        pred_pref, pred_dead = model(X)
+        loss = geodesic_loss_rad(pred_pref, y_pref) + geodesic_loss_rad(pred_dead, y_dead)
+        total_loss += loss.item()
+        n_batches += 1
+
+    return total_loss / max(n_batches, 1)
+
 
 def main():
     args = parse_args()
@@ -188,6 +206,12 @@ def main():
     best_loss = float("inf")
     best_adapter_state = None
 
+    # epoch 0: initial loss before any fine-tuning
+    epoch_losses = []
+    initial_loss = evaluate_train_loss(model, train_loader, device)
+    print(f"[EPOCH 0] initial_train_loss={initial_loss:.4f}")
+    epoch_losses.append(initial_loss)
+
     for epoch in range(1, args.epochs + 1):
         model.train()
         total_loss = 0.0
@@ -212,12 +236,29 @@ def main():
 
         avg_loss = total_loss / max(n_batches, 1)
         print(f"[EPOCH {epoch}] train_loss={avg_loss:.4f}")
+        epoch_losses.append(avg_loss)
 
         if avg_loss < best_loss:
             best_loss = avg_loss
-            best_adapter_state = {k: v.detach().cpu().clone()
-                                  for k, v in model.state_dict().items()
-                                  if "lora" in k.lower()}
+            best_adapter_state = {
+                k: v.detach().cpu().clone()
+                for k, v in model.state_dict().items()
+                if "lora" in k.lower()
+            }
+
+    # plot per-epoch train loss (including epoch 0)
+    os.makedirs("results", exist_ok=True)
+    epochs = list(range(0, args.epochs + 1))
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, epoch_losses)
+    plt.xlabel("Epoch")
+    plt.ylabel("Train geodesic loss (rad)")
+    plt.title(f"User {args.user_id} fine-tuning loss")
+    out_curve = os.path.join("results", f"finetune_user_{args.user_id}_loss.png")
+    plt.tight_layout()
+    plt.savefig(out_curve, dpi=150)
+    plt.close()
+    print(f"[INFO] Saved fine-tune curve to {out_curve}")
 
     os.makedirs(args.save_dir, exist_ok=True)
 

@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.utils as nn_utils
+import matplotlib.pyplot as plt
 
 from src.datasets import FoVSequenceDataset
 from src.model import PooledFoVTransformer
@@ -263,6 +264,9 @@ def main():
     train_loader, val_loader = build_dataloaders(args)
     model, optimizer, device = build_model_and_optim(args)
 
+    train_losses = []
+    val_losses = []
+
     for epoch in range(1, args.epochs + 1):
         train_loss = train_one_epoch(model, optimizer, train_loader, device, epoch, args.epochs)
         val_loss = evaluate(model, val_loader, device, epoch, args.epochs)
@@ -271,6 +275,25 @@ def main():
             f"[RESULT] Epoch {epoch}/{args.epochs} "
             f"train_loss={train_loss:.4f} val_loss={val_loss:.4f}"
         )
+
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+
+    os.makedirs("results", exist_ok=True)
+    epochs = range(1, args.epochs + 1)
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, train_losses, label="Train loss")
+    plt.plot(epochs, val_losses, label="Val loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Geodesic loss (rad)")
+    plt.title("Pooled model training")
+    plt.legend()
+    out_curve = os.path.join("results", "pooled_training_loss.png")
+    plt.tight_layout()
+    plt.savefig(out_curve, dpi=150)
+    plt.close()
+    print(f"[INFO] Saved training curve to {out_curve}")
+    # <<< END ADDED
 
     save_weights(model, args.save_path)
 
