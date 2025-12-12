@@ -6,7 +6,7 @@ conda env create -f env.yml
 Activate yml environment:
 conda activate fovenv
 
-Generate pooled fine tuned training parquets:
+Generate pooled and fine tuned training parquets:
 python -m scripts.build_avtrack360_pooled
 
 To see the users in pooled training parquet:
@@ -15,7 +15,7 @@ python -c "import pandas as pd; df = pd.read_parquet('data/avtrack360_train.parq
 And in the finetune parquet:
 python -c "import pandas as pd; df = pd.read_parquet('data/avtrack360_val.parquet'); print(sorted(df['user_id'].unique()))"
 
-The lists are here in case you would rather skip those steps:
+The lists are here in case you would rather skip checking which users are in which group:
 Pooled training user ids:
 [3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 24, 25, 26, 28, 31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48]
 
